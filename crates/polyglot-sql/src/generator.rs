@@ -37810,6 +37810,21 @@ impl Generator {
         }
     }
 
+    fn postgres_tsql_literal_string(expr: &Expression) -> Option<&str> {
+        match expr {
+            Expression::Literal(literal) => match literal.as_ref() {
+                Literal::String(value) => Some(value),
+                _ => None,
+            },
+            Expression::Cast(cast) | Expression::TryCast(cast) | Expression::SafeCast(cast)
+                if Self::is_string_data_type(&cast.to) =>
+            {
+                Self::postgres_tsql_literal_string(&cast.this)
+            }
+            _ => None,
+        }
+    }
+
     fn postgres_year_is_outside_tsql_range(value: &str, format: &str) -> bool {
         fn component_is_outside(component: &str, forced_negative: bool) -> bool {
             let component = component.trim().trim_end_matches(',');
@@ -37891,13 +37906,11 @@ impl Generator {
                 if target_type == "DATE"
                     && matches!(self.config.source_dialect, Some(DialectType::PostgreSQL))
                 {
-                    if let Expression::Literal(literal) = this {
-                        if let Literal::String(value) = literal.as_ref() {
-                            if Self::postgres_year_is_outside_tsql_range(value, format) {
-                                self.unsupported(
-                                    "PostgreSQL TO_DATE literal is outside the T-SQL/Fabric DATE range 0001-01-01 through 9999-12-31",
-                                )?;
-                            }
+                    if let Some(value) = Self::postgres_tsql_literal_string(this) {
+                        if Self::postgres_year_is_outside_tsql_range(value, format) {
+                            self.unsupported(
+                                "PostgreSQL TO_DATE literal is outside the T-SQL/Fabric DATE range 0001-01-01 through 9999-12-31",
+                            )?;
                         }
                     }
                 }

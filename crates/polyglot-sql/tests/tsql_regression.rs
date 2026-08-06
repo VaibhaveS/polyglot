@@ -913,6 +913,8 @@ fn postgres_to_date_literals_respect_tsql_date_domain() {
     for sql in [
         "SELECT to_date('-44-02-01', 'YYYY-MM-DD')",
         "SELECT to_date('0000-02-01', 'YYYY-MM-DD')",
+        "SELECT to_date('-44-02-01'::text, 'YYYY-MM-DD'::text)",
+        "SELECT to_date('0000-02-01'::text, 'YYYY-MM-DD'::text)",
         "SELECT to_date('10000-02-01', 'YYYY-MM-DD')",
         "SELECT to_date('02/01/0000', 'MM/DD/YYYY')",
         "SELECT to_date('00000201', 'YYYYMMDD')",
@@ -942,6 +944,16 @@ fn postgres_to_date_literals_respect_tsql_date_domain() {
         ),
     ] {
         assert_eq!(pg_to_tsql_strict(sql), expected, "failed for {sql}");
+    }
+
+    for sql in [
+        "SELECT to_date('0001-01-01'::text, 'YYYY-MM-DD'::text)",
+        "SELECT to_date('9999-12-31'::text, 'YYYY-MM-DD'::text)",
+        "SELECT to_date(date_text::text, 'YYYY-MM-DD'::text) FROM t",
+    ] {
+        Dialect::get(DialectType::PostgreSQL)
+            .transpile_with(sql, DialectType::TSQL, TranspileOptions::strict())
+            .unwrap_or_else(|err| panic!("strict mode should accept {sql}: {err}"));
     }
 }
 
@@ -2540,6 +2552,33 @@ fn strict_postgres_distinct_string_agg_is_rejected_for_tsql() {
             TranspileOptions::strict(),
         )
         .is_ok());
+}
+
+#[test]
+fn strict_postgres_aggregate_arguments_containing_subqueries_are_rejected_for_tsql() {
+    let pg = Dialect::get(DialectType::PostgreSQL);
+    for sql in [
+        "SELECT (SELECT max((SELECT i.unique2 FROM tenk1 i WHERE i.unique1 = o.unique1))) FROM tenk1 o",
+        "SELECT (SELECT max((SELECT i.unique2 FROM tenk1 i WHERE i.unique1 = o.unique1)) FILTER (WHERE o.unique1 < 10)) FROM tenk1 o",
+        "SELECT sum(unique1) FILTER (WHERE unique1 IN (SELECT unique1 FROM onek WHERE unique1 < 100)) FROM tenk1",
+    ] {
+        let err = pg
+            .transpile_with(sql, DialectType::TSQL, TranspileOptions::strict())
+            .expect_err("strict T-SQL transpilation should reject a subquery in an aggregate argument");
+        assert!(
+            err.to_string()
+                .contains("aggregate arguments containing subqueries"),
+            "unexpected error for {sql}: {err}"
+        );
+    }
+
+    for sql in [
+        "SELECT (SELECT i.unique2 FROM tenk1 i WHERE i.unique1 = o.unique1) FROM tenk1 o",
+        "SELECT (SELECT max(i.unique2) FROM tenk1 i WHERE i.unique1 = o.unique1) FROM tenk1 o",
+    ] {
+        pg.transpile_with(sql, DialectType::TSQL, TranspileOptions::strict())
+            .unwrap_or_else(|err| panic!("strict mode should accept {sql}: {err}"));
+    }
 }
 
 #[test]
