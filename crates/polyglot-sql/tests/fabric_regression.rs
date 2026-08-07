@@ -890,6 +890,8 @@ fn postgres_to_date_literals_respect_fabric_date_domain() {
         "SELECT to_date('0000-02-01', 'YYYY-MM-DD')",
         "SELECT to_date('-44-02-01'::text, 'YYYY-MM-DD'::text)",
         "SELECT to_date('0000-02-01'::text, 'YYYY-MM-DD'::text)",
+        "SELECT to_date('0001-01-01'::char(1), 'YYYY-MM-DD'::text)",
+        "SELECT to_date('0001-01-01'::varchar(1), 'YYYY-MM-DD'::text)",
         "SELECT to_date('10000-02-01', 'YYYY-MM-DD')",
         "SELECT to_date('02/01/0000', 'MM/DD/YYYY')",
         "SELECT to_date('00000201', 'YYYYMMDD')",
@@ -921,14 +923,21 @@ fn postgres_to_date_literals_respect_fabric_date_domain() {
         assert_eq!(pg_to_fabric_strict(sql), expected, "failed for {sql}");
     }
 
-    for sql in [
-        "SELECT to_date('0001-01-01'::text, 'YYYY-MM-DD'::text)",
-        "SELECT to_date('9999-12-31'::text, 'YYYY-MM-DD'::text)",
-        "SELECT to_date(date_text::text, 'YYYY-MM-DD'::text) FROM t",
+    for (sql, expected) in [
+        (
+            "SELECT to_date('0001-01-01'::text, 'YYYY-MM-DD'::text)",
+            "SELECT CONVERT(DATE, CAST('0001-01-01' AS VARCHAR(MAX)), 23)",
+        ),
+        (
+            "SELECT to_date('9999-12-31'::text, 'YYYY-MM-DD'::text)",
+            "SELECT CONVERT(DATE, CAST('9999-12-31' AS VARCHAR(MAX)), 23)",
+        ),
+        (
+            "SELECT to_date(date_text::text, 'YYYY-MM-DD'::text) FROM t",
+            "SELECT CONVERT(DATE, CAST(date_text AS VARCHAR(MAX)), 23) FROM t",
+        ),
     ] {
-        Dialect::get(DialectType::PostgreSQL)
-            .transpile_with(sql, DialectType::Fabric, TranspileOptions::strict())
-            .unwrap_or_else(|err| panic!("strict mode should accept {sql}: {err}"));
+        assert_eq!(pg_to_fabric_strict(sql), expected, "failed for {sql}");
     }
 }
 

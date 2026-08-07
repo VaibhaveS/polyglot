@@ -37810,18 +37810,57 @@ impl Generator {
         }
     }
 
-    fn postgres_tsql_literal_string(expr: &Expression) -> Option<&str> {
+    fn postgres_tsql_literal_string(expr: &Expression) -> Option<Cow<'_, str>> {
         match expr {
             Expression::Literal(literal) => match literal.as_ref() {
-                Literal::String(value) => Some(value),
+                Literal::String(value) => Some(Cow::Borrowed(value)),
                 _ => None,
             },
             Expression::Cast(cast) | Expression::TryCast(cast) | Expression::SafeCast(cast)
                 if Self::is_string_data_type(&cast.to) =>
             {
-                Self::postgres_tsql_literal_string(&cast.this)
+                let value = Self::postgres_tsql_literal_string(&cast.this)?;
+                match &cast.to {
+                    DataType::Char { length } => Some(Self::postgres_string_cast_literal(
+                        value,
+                        length.unwrap_or(1),
+                        true,
+                    )),
+                    DataType::VarChar {
+                        length: Some(length),
+                        ..
+                    }
+                    | DataType::String {
+                        length: Some(length),
+                    } => Some(Self::postgres_string_cast_literal(value, *length, false)),
+                    DataType::TextWithLength { length } => {
+                        Some(Self::postgres_string_cast_literal(value, *length, false))
+                    }
+                    _ => Some(value),
+                }
             }
             _ => None,
+        }
+    }
+
+    fn postgres_string_cast_literal(
+        value: Cow<'_, str>,
+        length: u32,
+        blank_pad: bool,
+    ) -> Cow<'_, str> {
+        let length = length as usize;
+        let value_length = value.chars().count();
+        if value_length > length || (blank_pad && value_length < length) {
+            let mut result = value.chars().take(length).collect::<String>();
+            if blank_pad {
+                result.extend(std::iter::repeat_n(
+                    ' ',
+                    length.saturating_sub(value_length),
+                ));
+            }
+            Cow::Owned(result)
+        } else {
+            value
         }
     }
 
@@ -37907,7 +37946,7 @@ impl Generator {
                     && matches!(self.config.source_dialect, Some(DialectType::PostgreSQL))
                 {
                     if let Some(value) = Self::postgres_tsql_literal_string(this) {
-                        if Self::postgres_year_is_outside_tsql_range(value, format) {
+                        if Self::postgres_year_is_outside_tsql_range(&value, format) {
                             self.unsupported(
                                 "PostgreSQL TO_DATE literal is outside the T-SQL/Fabric DATE range 0001-01-01 through 9999-12-31",
                             )?;
