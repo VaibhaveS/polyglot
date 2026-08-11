@@ -37824,7 +37824,6 @@ impl Generator {
                     DataType::Char { length } => Some(Self::postgres_string_cast_literal(
                         value,
                         length.unwrap_or(1),
-                        true,
                     )),
                     DataType::VarChar {
                         length: Some(length),
@@ -37832,9 +37831,9 @@ impl Generator {
                     }
                     | DataType::String {
                         length: Some(length),
-                    } => Some(Self::postgres_string_cast_literal(value, *length, false)),
+                    } => Some(Self::postgres_string_cast_literal(value, *length)),
                     DataType::TextWithLength { length } => {
-                        Some(Self::postgres_string_cast_literal(value, *length, false))
+                        Some(Self::postgres_string_cast_literal(value, *length))
                     }
                     _ => Some(value),
                 }
@@ -37843,22 +37842,11 @@ impl Generator {
         }
     }
 
-    fn postgres_string_cast_literal(
-        value: Cow<'_, str>,
-        length: u32,
-        blank_pad: bool,
-    ) -> Cow<'_, str> {
+    fn postgres_string_cast_literal(value: Cow<'_, str>, length: u32) -> Cow<'_, str> {
         let length = length as usize;
         let value_length = value.chars().count();
-        if value_length > length || (blank_pad && value_length < length) {
-            let mut result = value.chars().take(length).collect::<String>();
-            if blank_pad {
-                result.extend(std::iter::repeat_n(
-                    ' ',
-                    length.saturating_sub(value_length),
-                ));
-            }
-            Cow::Owned(result)
+        if value_length > length {
+            Cow::Owned(value.chars().take(length).collect())
         } else {
             value
         }
