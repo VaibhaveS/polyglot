@@ -944,6 +944,14 @@ fn postgres_to_date_literals_respect_tsql_date_domain() {
             "SELECT to_date(date_text, 'YYYY-MM-DD') FROM t",
             "SELECT CONVERT(DATE, date_text, 23) FROM t",
         ),
+        (
+            "SELECT to_date('1'::char(-1), 'YYYY-MM-DD')",
+            "SELECT CONVERT(DATE, CAST('1' AS CHAR(4294967295)), 23)",
+        ),
+        (
+            "SELECT to_date('1'::char(4294967295), 'YYYY-MM-DD')",
+            "SELECT CONVERT(DATE, CAST('1' AS CHAR(4294967295)), 23)",
+        ),
     ] {
         assert_eq!(pg_to_tsql_strict(sql), expected, "failed for {sql}");
     }
